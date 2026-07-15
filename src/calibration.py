@@ -66,24 +66,33 @@ def log_posterior(params, observed_days, observed_volumes):
 
 def loglike_population(params, mice_days, mice_volumes, meas_sigma=5.0):
     """
-    params = [a, b, alpha, V0_1, V0_2, ..., V0_8]
-    mice_days, mice_volumes: lists of arrays, one per mouse
+    Vectorized version: since a, b, alpha are shared across mice,
+    solve all 8 mice as ONE ODE system (8-dimensional state vector)
+    instead of 8 separate solve_ivp calls -- much faster.
     """
     a, b, alpha = params[0], params[1], params[2]
-    V0_list = params[3:]
+    V0_list = np.array(params[3:])
+
+    n_mice = len(V0_list)
+    all_days = np.unique(np.concatenate(mice_days))  # union of all measurement days
+    all_days.sort()
+
+    def ode_rhs(t, V):
+        return a * V**alpha - b * V   # applies elementwise to the 8-dim vector
+
+    sol = solve_ivp(ode_rhs, [0, all_days[-1]], V0_list,
+                     t_eval=all_days, method="RK45")
+
+    if not sol.success:
+        return -np.inf
 
     total_ll = 0.0
-    for V0, days, vols in zip(V0_list, mice_days, mice_volumes):
-        duration = max(days)
-
-        def ode_rhs(t, V):
-            return a * V**alpha - b * V
-
-        sol = solve_ivp(ode_rhs, [0, duration], [V0], t_eval=days, method="RK45")
-        if not sol.success:
-            return -np.inf
-
-        predicted = sol.y[0]
+    for i in range(n_mice):
+        days = mice_days[i]
+        vols = mice_volumes[i]
+        # find predicted values at this mouse's specific observation days
+        idx = np.searchsorted(all_days, days)
+        predicted = sol.y[i][idx]
         residuals = vols - predicted
         total_ll += -0.5 * np.sum((residuals / meas_sigma) ** 2)
 
