@@ -1,5 +1,16 @@
 # ============================================================
-
+# Synthetic Data Generation - Stochastic NSM Tumor Growth Model
+# ============================================================
+# Reference: Belkhatir et al., "Stochastic Norton-Simon-Massague
+# Tumor Growth Modeling: Controlled and Mixed-Effect Uncontrolled
+# Analysis", IEEE Trans. Control Systems Technology, 2020.
+#
+# We simulate the UNCONTROLLED version of the model (no drug/therapy
+# term), described by the following stochastic differential
+# equation (SDE) of Ito type (Equation 2 in the paper):
+#
+#       dV(t) = (a * V(t)^alpha - b * V(t)) dt + sigma * V(t)^beta * dW(t)
+#
 # where:
 #   - V(t)  : tumor volume at time t
 #   - a     : growth (anabolism) rate constant
@@ -11,6 +22,14 @@
 #   - beta  : exponent controlling how the noise scales with volume
 #             (beta = 1 => multiplicative noise, proportional to V)
 #   - W(t)  : standard Wiener process (Brownian motion)
+#
+# POPULATION MIXED-EFFECT STRUCTURE (Eq. 20-21 in the paper):
+# Following Belkhatir et al. exactly, the interindividual variability
+# across the population of mice comes ONLY from the initial condition
+# V0 (random effect eta_i). The parameters a, b, alpha, sigma, beta
+# are FIXED EFFECTS: identical for every mouse in the population.
+# We do NOT add any artificial variability on a or b between mice,
+# to stay faithful to the paper's mixed-effect formulation.
 #
 # GOAL OF THIS SCRIPT:
 # Generate synthetic tumor volume measurements for a population of
@@ -32,31 +51,28 @@ np.random.seed(42)  # fixed seed => results are reproducible every time you run 
 # ---------------------------------------------------------------
 # 1) MODEL PARAMETERS (population-level / "fixed effects")
 # ---------------------------------------------------------------
-# These are the parameters shared by the whole population of mice
-# (before we add inter-individual variability below).
+# These are the parameters shared by the WHOLE population of mice.
+# Per Eq. 20-21 of the paper, a, b, alpha, sigma, beta are fixed
+# effects: the same for every mouse. Only V0 varies between mice
+# (see Section 2 below).
 
-a_pop = 1.3     # growth rate constant 
-b_pop = 0.09    # death rate constant
-alpha = 2/3     # power-law exponent 
-
-beta  = 1.0     # noise exponent. 
-
-sigma = 0.03    # This is
+a_pop = 1.3     # growth rate constant a [mm^3^(1-alpha) / day]
+b_pop = 0.09    # death rate constant b [1 / day]
+alpha = 2/3     # power-law exponent (2/3 = classical von Bertalanffy
+                # value, corresponds to surface-limited growth)
+beta  = 1.0     # noise exponent. beta=1 => noise amplitude scales
+                # linearly with current volume (Case 1 of Theorem 1
+                # in the paper), which guarantees V(t) stays positive
+                # for ANY a,b,sigma >= 0 -> safest numerical choice.
+sigma = 0.03    # amplitude of the DYNAMICAL (process) noise. This is
                 # the noise inside the SDE itself, NOT the measurement
-                # noise
+                # noise (see Section 3 below for that).
 
 V0_mean = 50.0  # average initial tumor volume across mice [mm^3]
 V0_sd   = 10.0  # standard deviation of the initial volume across
-                # mice
-                
-
-# Optional: let a and b themselves vary slightly from mouse to mouse,
-# to represent additional biological heterogeneity between individual
-# tumors (this is a modeling choice on our side, not explicitly given
-# in the paper's mixed-effect formulation, which only varies V0).
-interindiv_var_ab = True
-a_cv = 0.10   # coefficient of variation of a across mice (10%)
-b_cv = 0.10   # coefficient of variation of b across mice (10%)
+                # mice (this implements the random effect eta_i on
+                # the initial condition, Eq. 21 of the paper -- the
+                # ONLY source of interindividual variability we use)
 
 # ---------------------------------------------------------------
 # 2) EXPERIMENT SETUP
@@ -81,13 +97,27 @@ n_meas = len(measurement_times)
 # measurement error), added only at the discrete measurement times,
 # on top of the true simulated volume V_true.
 #
-#   "multiplicative" : y = V_true * exp(epsilon)   
+#   "additive"        : y = V_true + epsilon        (Gaussian noise,
+#                       as specified by Zehor for this step)
+#   "multiplicative"   : y = V_true * exp(epsilon)   (log-normal noise,
+#                       always keeps y > 0; matches Eq. 26 in the
+#                       paper, used there for the model fitting itself)
 
-#   "additive"        : y = V_true + epsilon       
-
-noise_type = "multiplicative"
-meas_sigma = 0.08   # standard deviation of the measurement noise
-                    
+noise_type = "additive"
+meas_sigma = 5.0     # standard deviation of the measurement noise.
+                     # IMPORTANT: Eq. 20 of the paper specifies
+                     # eps_ij ~ N(0, S), i.e. a CONSTANT variance S
+                     # (homoscedastic noise, independent of V). This
+                     # is why meas_sigma below is used as an ABSOLUTE
+                     # value in mm^3 (not scaled by V_at_meas) -- see
+                     # Section 5. Note this is a deliberate modeling
+                     # choice we're tracking: later, once the full
+                     # pipeline works, it will be worth comparing
+                     # estimation results under this homoscedastic
+                     # noise vs. a heteroscedastic alternative
+                     # (std proportional to V, as used e.g. by
+                     # Browning et al.), to see how much the noise
+                     # model choice affects the parameter estimates.
 
 # ---------------------------------------------------------------
 # 4) SDE SIMULATION (EULER-MARUYAMA SCHEME)
@@ -99,6 +129,17 @@ def simulate_one_mouse(a, b, alpha, beta, sigma, V0, duration, dt):
     model for a single mouse, using the Euler-Maruyama discretization
     of the SDE:
         dV = (a*V^alpha - b*V) dt + sigma*V^beta dW
+
+    At every small time step dt, we add:
+      - a deterministic "drift" step  : (a*V^alpha - b*V) * dt
+      - a random "diffusion" step     : sigma * V^beta * dW,
+        where dW ~ Normal(0, dt) is a fresh independent Gaussian
+        draw at each step (this is what makes the trajectory
+        fluctuate continuously, unlike a smooth deterministic ODE).
+
+    Returns the full fine-grained trajectory (t_grid, V), which we
+    only use internally to extract measurements at the correct
+    days; it is NOT what we plot for the final figure shown to Zehor.
     """
     n_steps = int(duration / dt)
     t_grid = np.linspace(0, duration, n_steps + 1)
@@ -116,20 +157,16 @@ def simulate_one_mouse(a, b, alpha, beta, sigma, V0, duration, dt):
 # ---------------------------------------------------------------
 # 5) GENERATE THE FULL SYNTHETIC COHORT
 # ---------------------------------------------------------------
-records = []            # will become the final DataFrame (one row per measurement)
-true_trajectories = {} 
+records = []            # will become the final tidy DataFrame (one row per measurement)
+true_trajectories = {}  # keeps the fine-grained trajectory of each mouse (for diagnostics)
 
 for mouse_id in range(1, n_mice + 1):
 
-    # --- random effect on the initial condition (Eq. 21 in the paper) ---
+    # --- random effect on the initial condition ONLY (Eq. 21 in the paper) ---
     V0_i = max(np.random.normal(V0_mean, V0_sd), 1.0)
 
-    # --- optional random effect on growth/death parameters (heterogeneity) ---
-    if interindiv_var_ab:
-        a_i = max(np.random.normal(a_pop, a_cv * a_pop), 1e-3)
-        b_i = max(np.random.normal(b_pop, b_cv * b_pop), 1e-3)
-    else:
-        a_i, b_i = a_pop, b_pop
+    # --- a, b, alpha, sigma, beta are FIXED EFFECTS: identical for every mouse ---
+    a_i, b_i = a_pop, b_pop
 
     # --- simulate this mouse's full (fine time-step) trajectory ---
     t_grid, V_true = simulate_one_mouse(a_i, b_i, alpha, beta, sigma, V0_i, duration_days, dt)
@@ -144,7 +181,10 @@ for mouse_id in range(1, n_mice + 1):
         eps = np.random.normal(0, meas_sigma, size=n_meas)
         V_obs = V_at_meas * np.exp(eps)          # y = V * exp(eps), log-normal, always V > 0
     else:
-        eps = np.random.normal(0, meas_sigma * V_at_meas)
+        # constant-variance (homoscedastic) Gaussian noise, matching
+        # eps_ij ~ N(0, S) in Eq. 20 of the paper -- S = meas_sigma^2,
+        # same absolute noise level regardless of the current volume
+        eps = np.random.normal(0, meas_sigma, size=n_meas)
         V_obs = V_at_meas + eps
         V_obs = np.clip(V_obs, 1e-3, None)
 
@@ -155,7 +195,7 @@ for mouse_id in range(1, n_mice + 1):
             "day": day,
             "a": a_i, "b": b_i, "V0": V0_i,
             "V_true": v_true,   # "ground truth" volume (only known because this is synthetic data)
-            "V_obs": v_obs      # noisy volume, what a real experiment would actually measure
+            "V_obs": v_obs      # noisy volume, i.e. what a real experiment would actually measure
         })
 
 df = pd.DataFrame(records)
