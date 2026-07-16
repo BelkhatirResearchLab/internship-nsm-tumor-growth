@@ -7,11 +7,7 @@ Browning et al. (2024, "Predicting Radiotherapy Patient Outcomes with
 Real-Time Clinical Data...") to the NSM tumor growth model
 (Belkhatir et al., 2020).
 
-Parts of this file (in particular the structure of loglike / mcmc /
-get_weights) are adapted from the Julia code accompanying Browning
-et al., https://github.com/ap-browning/clinical_predictions
-(file analysis/inference.jl), reimplemented in Python and modified
-for the NSM stochastic tumor growth model.
+
 
 STATUS (Milestones 1 & 2, current):
 - Single-mouse calibration: WORKING, but likelihood is simplified
@@ -22,16 +18,16 @@ STATUS (Milestones 1 & 2, current):
 - Population (8-mouse) joint calibration: WORKING (shared a, b, alpha;
   individual V0 per mouse, matching Eq. 20-21 of the NSM paper). This
   is a mixed-effect joint calibration -- NOT the same as Browning et
-  al.'s approach (individual calibration + KDE pooling), which has not
-  been implemented yet.
+  al.'s approach (individual calibration + KDE pooling), which I haven't 
+  implemented yet.
 - Online/sequential update (get_weights_nsm): WORKING, first version.
   Uses population samples as the "prior" and re-weights them as
   measurements arrive, following the cumulative log-likelihood
   mechanism of Browning et al.'s get_weights(). Not yet tested on a
-  held-out mouse (i.e. not yet a true out-of-sample prediction test).
+  not seen mouse.
 
-NEXT STEP (not yet implemented): a likelihood that properly accounts
-for process/dynamical noise (sigma > 0), e.g. via an Extended Kalman
+NEXT STEP : implement a likelihood that properly accounts
+for process/dynamical noise (sigma > 0) via an Extended Kalman
 Filter as in Belkhatir et al. Section III-B, or a particle filter.
 """
 
@@ -44,9 +40,7 @@ from scipy.integrate import solve_ivp
 ################################################
 # Simplified likelihood: treats the NSM model as a deterministic ODE
 # (process noise sigma=0) with additive, constant-variance measurement
-# noise (Eq. 20 of the NSM paper). This is a first approximation --
-# see module docstring above for its known limitation (biased
-# estimates when the true data include process noise).
+# noise (Eq. 20 of the NSM paper). This is a first approximation 
 
 def loglike(params, observed_days, observed_volumes, meas_sigma=5.0):
     """
@@ -82,12 +76,15 @@ def log_prior(params):
     contain the true simulation parameters used to generate the
     synthetic data.
     """
+
+
+    ########## THESE CAN BE REVIWED   
     a, b, alpha, V0 = params
     if not (0.1 < a < 5.0):
         return -np.inf
     if not (0.01 < b < 1.0):
         return -np.inf
-    if not (0.3 < alpha < 0.99):
+    if not (0.3 < alpha < 0.99): # 1
         return -np.inf
     if not (5.0 < V0 < 200.0):
         return -np.inf
@@ -106,9 +103,7 @@ def log_posterior(params, observed_days, observed_volumes):
 ################################################
 # Joint calibration on all 8 mice: a, b, alpha are shared population
 # parameters (fixed effects, Eq. 20), while each mouse keeps its own
-# V0 (random effect, Eq. 21). This pools information across mice,
-# which the paper suggests can help resolve identifiability issues
-# that appear when calibrating on a single mouse (Section III-A).
+# V0 (random effect, Eq. 21). This pools information across mice 
 #
 # NOTE: this is the NSM paper's own mixed-effect formulation, NOT
 # Browning et al.'s approach (which calibrates each patient
@@ -191,8 +186,7 @@ def log_posterior_population(params, mice_days, mice_volumes):
 # using only the data seen so far -- this is the "real-time" mechanism
 # we want to adapt from the radiotherapy paper.
 #
-# CURRENT LIMITATION: not yet tested on a held-out mouse (i.e. a mouse
-# excluded from the population calibration in Milestone 2). The demo
+########################################## HERE
 # so far reuses a mouse that was part of the population fit, so it is
 # not yet a true out-of-sample prediction test.
 

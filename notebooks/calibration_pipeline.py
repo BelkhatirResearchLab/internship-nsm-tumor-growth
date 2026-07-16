@@ -136,10 +136,7 @@ p0_pop = p0_center_pop + 1e-2 * np.abs(p0_center_pop) * np.random.randn(nwalkers
 sampler_pop = emcee.EnsembleSampler(nwalkers_pop, ndim_pop, log_posterior_population,
                                       args=(mice_days, mice_volumes))
 sampler_pop.run_mcmc(p0_pop, 1000, progress=True)
-# NOTE: only 1000 iterations were run so far (quick test) -- likely not
-# fully converged for an 11-dimensional problem. Consider re-running
-# with more iterations (e.g. sampler_pop.run_mcmc(None, 4000, progress=True)
-# to continue the same chain) before treating results as final.
+
 
 # %%
 samples_pop = sampler_pop.get_chain(discard=200, thin=5, flat=True)
