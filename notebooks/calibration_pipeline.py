@@ -249,3 +249,26 @@ p0_mc = p0_center_mc + 1e-2 * p0_center_mc * np.random.randn(nwalkers_mc, ndim_m
 sampler_mc = emcee.EnsembleSampler(nwalkers_mc, ndim_mc, log_posterior_montecarlo,
                                      args=(observed_days, observed_volumes))
 sampler_mc.run_mcmc(p0_mc, 10, progress=True)   # peu d'iterations d'abord, pour tester la vitesse
+
+# %%
+# Avec seulement 10 iterations, pas de vrai burn-in a faire -- on regarde juste
+# la position actuelle des chaines pour voir si ca semble raisonnable
+samples_mc = sampler_mc.get_chain(flat=True)
+
+param_names_mc = ["a", "b", "alpha", "sigma", "V0"]
+for i, name in enumerate(param_names_mc):
+    est = np.percentile(samples_mc[:, i], [16, 50, 84])
+    print(f"{name}: {est[1]:.3f}  (range vu: [{est[0]:.3f}, {est[2]:.3f}])")
+    
+# %%
+temps_par_iteration = 60 / 10   # secondes, d'apres ton test
+print(f"Temps par iteration: {temps_par_iteration:.1f}s")
+print(f"Pour 500 iterations: {temps_par_iteration*500/60:.1f} minutes")
+print(f"Pour 1000 iterations: {temps_par_iteration*1000/60:.1f} minutes")
+
+
+
+# %%
+sampler_mc2 = emcee.EnsembleSampler(nwalkers_mc, ndim_mc, log_posterior_montecarlo,
+                                      args=(observed_days, observed_volumes))
+sampler_mc2.run_mcmc(p0_mc, 10, progress=True)

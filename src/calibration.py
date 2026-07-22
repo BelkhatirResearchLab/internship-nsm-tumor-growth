@@ -300,7 +300,7 @@ def get_weights_nsm(param_samples, V0_samples, observed_days, observed_volumes,
 from nsm_model import simulate_one_mouse
 
 def loglike_montecarlo(params, observed_days, observed_volumes,
-                        meas_sigma=5.0, n_simulations=50, dt=0.05):
+                        meas_sigma=5.0, n_simulations=20, dt=0.1):
     """
     params = (a, b, alpha, sigma, V0)
     Note: sigma (process noise) is now part of the parameters to
