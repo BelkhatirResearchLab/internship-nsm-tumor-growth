@@ -260,11 +260,7 @@ for i, name in enumerate(param_names_mc):
     est = np.percentile(samples_mc[:, i], [16, 50, 84])
     print(f"{name}: {est[1]:.3f}  (range vu: [{est[0]:.3f}, {est[2]:.3f}])")
     
-# %%
-temps_par_iteration = 60 / 10   # secondes, d'apres ton test
-print(f"Temps par iteration: {temps_par_iteration:.1f}s")
-print(f"Pour 500 iterations: {temps_par_iteration*500/60:.1f} minutes")
-print(f"Pour 1000 iterations: {temps_par_iteration*1000/60:.1f} minutes")
+
 
 
 
@@ -272,3 +268,41 @@ print(f"Pour 1000 iterations: {temps_par_iteration*1000/60:.1f} minutes")
 sampler_mc2 = emcee.EnsembleSampler(nwalkers_mc, ndim_mc, log_posterior_montecarlo,
                                       args=(observed_days, observed_volumes))
 sampler_mc2.run_mcmc(p0_mc, 10, progress=True)
+
+# %%
+# point de depart volontairement mauvais, pour un vrai test
+p0_center_mc = np.array([0.5, 0.3, 0.4, 0.08, 20.0])   # tres different des vraies valeurs
+p0_mc = p0_center_mc + 1e-2 * np.abs(p0_center_mc) * np.random.randn(nwalkers_mc, ndim_mc)
+
+sampler_mc = emcee.EnsembleSampler(nwalkers_mc, ndim_mc, log_posterior_montecarlo,
+                                     args=(observed_days, observed_volumes))
+sampler_mc.run_mcmc(p0_mc, 1000, progress=True)
+
+
+
+
+# %%
+
+samples_mc = sampler_mc.get_chain(discard=100, thin=10, flat=True)
+
+param_names_mc = ["a", "b", "alpha", "sigma", "V0"]
+for i, name in enumerate(param_names_mc):
+    est = np.percentile(samples_mc[:, i], [16, 50, 84])
+    print(f"{name}: {est[1]:.3f}  (68% CI: [{est[0]:.3f}, {est[2]:.3f}])")
+
+print(f"\nVraies valeurs : a=1.300, b=0.090, alpha=0.667, sigma=0.030, V0=55.0")
+print(f"Point de depart (mauvais) : a=0.5, b=0.3, alpha=0.4, sigma=0.08, V0=20.0")
+
+
+# %%
+
+fig, axes = plt.subplots(5, 1, figsize=(10, 10), sharex=True)
+chain = sampler_mc.get_chain()
+for i, name in enumerate(param_names_mc):
+    axes[i].plot(chain[:, :, i], alpha=0.3, color="black")
+    axes[i].set_ylabel(name)
+axes[-1].set_xlabel("Iteration")
+plt.tight_layout()
+plt.show()
+
+# %%
