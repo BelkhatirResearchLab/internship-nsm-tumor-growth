@@ -241,3 +241,111 @@ def get_weights_nsm(param_samples, V0_samples, observed_days, observed_volumes,
         weights[:, t] = w / np.nansum(w)
 
     return weights, all_curves
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################### A F T E R ############################
+
+
+################################################
+## MONTE CARLO LIKELIHOOD (accounts for process/dynamical noise)
+################################################
+# Instead of comparing observed data to a SINGLE deterministic
+# trajectory (sigma=0), we simulate many noisy trajectories (with the
+# true sigma) for the same parameters, and compare the observed data
+# to the resulting distribution (mean + spread) at each measurement
+# day. This properly accounts for process noise, unlike loglike().
+
+from nsm_model import simulate_one_mouse
+
+def loglike_montecarlo(params, observed_days, observed_volumes,
+                        meas_sigma=5.0, n_simulations=50, dt=0.05):
+    """
+    params = (a, b, alpha, sigma, V0)
+    Note: sigma (process noise) is now part of the parameters to
+    estimate, unlike loglike() where it was fixed at 0.
+    """
+    a, b, alpha, sigma, V0 = params
+    duration = max(observed_days)
+
+    # simulate n_simulations noisy trajectories with these parameters
+    all_curves = np.zeros((n_simulations, len(observed_days)))
+    for s in range(n_simulations):
+        t_grid, V = simulate_one_mouse(a, b, alpha, beta=1.0, sigma=sigma,
+                                         V0=V0, duration=duration, dt=dt)
+        idx = np.searchsorted(t_grid, observed_days)
+        all_curves[s] = V[idx]
+
+    # mean and spread (process-noise uncertainty) at each measurement day
+    sim_mean = all_curves.mean(axis=0)
+    sim_std = all_curves.std(axis=0)
+
+    # total uncertainty = process noise spread + measurement noise,
+    # combined in quadrature (variances add)
+    total_std = np.sqrt(sim_std**2 + meas_sigma**2)
+
+    residuals = observed_volumes - sim_mean
+    return -0.5 * np.sum((residuals / total_std) ** 2 + 2 * np.log(total_std))
+
+
+def log_prior_montecarlo(params):
+    a, b, alpha, sigma, V0 = params
+    if not (0.1 < a < 5.0):
+        return -np.inf
+    if not (0.01 < b < 1.0):
+        return -np.inf
+    if not (0.3 < alpha < 0.99):
+        return -np.inf
+    if not (0.001 < sigma < 0.2):
+        return -np.inf
+    if not (5.0 < V0 < 200.0):
+        return -np.inf
+    return 0.0
+
+
+def log_posterior_montecarlo(params, observed_days, observed_volumes):
+    lp = log_prior_montecarlo(params)
+    if not np.isfinite(lp):
+        return -np.inf
+    return lp + loglike_montecarlo(params, observed_days, observed_volumes)

@@ -196,3 +196,56 @@ for ax, ti in zip(axes, time_indices_to_show):
 plt.tight_layout()
 plt.savefig("../results/online_prediction_demo.png", dpi=150, bbox_inches="tight")
 plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+############################ A F T E R ###################################
+
+
+# %% [markdown]
+# ## Milestone 4 — Monte Carlo likelihood (accounts for process noise)
+
+# %%
+from calibration import log_posterior_montecarlo
+
+ndim_mc = 5   # a, b, alpha, sigma, V0
+nwalkers_mc = 32
+
+p0_center_mc = np.array([1.3, 0.09, 0.667, 0.03, 55.0])
+p0_mc = p0_center_mc + 1e-2 * p0_center_mc * np.random.randn(nwalkers_mc, ndim_mc)
+
+sampler_mc = emcee.EnsembleSampler(nwalkers_mc, ndim_mc, log_posterior_montecarlo,
+                                     args=(observed_days, observed_volumes))
+sampler_mc.run_mcmc(p0_mc, 10, progress=True)   # peu d'iterations d'abord, pour tester la vitesse

@@ -204,7 +204,7 @@ df = pd.DataFrame(records)
 # ---------------------------------------------------------------
 # 6) SAVE AND PREVIEW THE DATASET
 # ---------------------------------------------------------------
-df.to_csv("synthetic_NSM_tumor_data.csv", index=False)
+df.to_csv("../synthetic_NSM_tumor_data.csv", index=False)
 print(df.head(12))
 print(f"\nTotal: {n_mice} mice x {n_meas} measurements = {len(df)} rows")
 
