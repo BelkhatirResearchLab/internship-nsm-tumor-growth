@@ -421,7 +421,7 @@ def log_posterior_montecarlo(params, observed_days, observed_volumes):
 # params = [a, b, alpha, sigma, V0_1, V0_2, ..., V0_n]
 
 def loglike_montecarlo_population(params, mice_days, mice_volumes,
-                                    meas_sigma=5.0, n_simulations=10, dt=0.1):
+                                    meas_sigma=5.0, n_simulations=15, dt=0.2):
     """
     n_simulations reduced to 10 by default (vs 20 for single-mouse)
     since this is called once per mouse per evaluation -- with 8 mice

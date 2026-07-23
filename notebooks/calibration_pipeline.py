@@ -305,4 +305,98 @@ axes[-1].set_xlabel("Iteration")
 plt.tight_layout()
 plt.show()
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+######################### A F T E R WITH 8 MICE ##########################
+
+# %% [markdown]
+# ## Milestone 5 — Monte Carlo likelihood, population (8 mice)
+# Same idea as Milestone 4, but a, b, alpha, sigma are shared across
+# all 8 mice (fixed effects), each mouse keeps its own V0.
+# Starting point drawn from the prior (NOT the true values), to avoid
+# the "cheating" issue we caught in Milestone 4.
+
+# %%
+from calibration import log_posterior_montecarlo_population
+
+ndim_mcpop = 4 + 8   # a, b, alpha, sigma, V0_1...V0_8
+nwalkers_mcpop = 24
+
+# starting point drawn from the prior bounds, NOT from the true values
+np.random.seed(123)  # for reproducibility of this particular start
+p0_mcpop = np.column_stack([
+    np.random.uniform(0.1, 5.0, nwalkers_mcpop),     # a
+    np.random.uniform(0.01, 1.0, nwalkers_mcpop),    # b
+    np.random.uniform(0.3, 0.99, nwalkers_mcpop),    # alpha
+    np.random.uniform(0.001, 0.2, nwalkers_mcpop),   # sigma
+] + [np.random.uniform(5.0, 200.0, nwalkers_mcpop) for _ in range(8)])
+
+sampler_mcpop = emcee.EnsembleSampler(nwalkers_mcpop, ndim_mcpop,
+                                        log_posterior_montecarlo_population,
+                                        args=(mice_days, mice_volumes))
+
+sampler_mcpop.run_mcmc(p0_mcpop, 5, progress=True)
+
+
+
+
+
+
+
+# %%
+
+
+samples_mcpop = sampler_mcpop.get_chain(discard=100, thin=5, flat=True)
+
+param_names_mcpop = ["a", "b", "alpha", "sigma"] + [f"V0_mouse{i}" for i in range(1, 9)]
+
+print("=== Parametres partages (population, Monte Carlo) ===")
+for i in range(4):
+    est = np.percentile(samples_mcpop[:, i], [16, 50, 84])
+    print(f"{param_names_mcpop[i]}: {est[1]:.3f}  (68% CI: [{est[0]:.3f}, {est[2]:.3f}])")
+
+print("\n=== V0 par souris ===")
+for i in range(4, 12):
+    est = np.percentile(samples_mcpop[:, i], [16, 50, 84])
+    true_v0 = true_V0_list[i - 4]
+    print(f"{param_names_mcpop[i]}: {est[1]:.2f}  (68% CI: [{est[0]:.2f}, {est[2]:.2f}])  | vraie valeur: {true_v0:.2f}")
+
+print("\nVraies valeurs partagees: a=1.300, b=0.090, alpha=0.667, sigma=0.030")
+
 # %%
