@@ -349,3 +349,132 @@ def log_posterior_montecarlo(params, observed_days, observed_volumes):
     if not np.isfinite(lp):
         return -np.inf
     return lp + loglike_montecarlo(params, observed_days, observed_volumes)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################################
+## MONTE CARLO LIKELIHOOD - POPULATION (8 mice, shared parameters)
+################################################
+# Same idea as loglike_montecarlo, but now a, b, alpha, sigma are
+# SHARED across all mice (fixed effects), while each mouse keeps its
+# own V0 (random effect). This is the Monte Carlo equivalent of
+# loglike_population, but properly accounting for process noise.
+#
+# params = [a, b, alpha, sigma, V0_1, V0_2, ..., V0_n]
+
+def loglike_montecarlo_population(params, mice_days, mice_volumes,
+                                    meas_sigma=5.0, n_simulations=10, dt=0.1):
+    """
+    n_simulations reduced to 10 by default (vs 20 for single-mouse)
+    since this is called once per mouse per evaluation -- with 8 mice
+    that's already 8x more simulations per MCMC step than the
+    single-mouse version.
+    """
+    a, b, alpha, sigma = params[0], params[1], params[2], params[3]
+    V0_list = params[4:]
+
+    total_ll = 0.0
+
+    for mouse_idx, V0 in enumerate(V0_list):
+        days = mice_days[mouse_idx]
+        vols = mice_volumes[mouse_idx]
+        duration = max(days)
+
+        all_curves = np.zeros((n_simulations, len(days)))
+        for s in range(n_simulations):
+            t_grid, V = simulate_one_mouse(a, b, alpha, beta=1.0, sigma=sigma,
+                                             V0=V0, duration=duration, dt=dt)
+            idx = np.searchsorted(t_grid, days)
+            all_curves[s] = V[idx]
+
+        sim_mean = all_curves.mean(axis=0)
+        sim_std = all_curves.std(axis=0)
+        total_std = np.sqrt(sim_std**2 + meas_sigma**2)
+
+        residuals = vols - sim_mean
+        total_ll += -0.5 * np.sum((residuals / total_std) ** 2 + 2 * np.log(total_std))
+
+    return total_ll
+
+
+def log_prior_montecarlo_population(params):
+    a, b, alpha, sigma = params[0], params[1], params[2], params[3]
+    V0_list = params[4:]
+
+    if not (0.1 < a < 5.0):
+        return -np.inf
+    if not (0.01 < b < 1.0):
+        return -np.inf
+    if not (0.3 < alpha < 0.99):
+        return -np.inf
+    if not (0.001 < sigma < 0.2):
+        return -np.inf
+    for V0 in V0_list:
+        if not (5.0 < V0 < 200.0):
+            return -np.inf
+    return 0.0
+
+
+def log_posterior_montecarlo_population(params, mice_days, mice_volumes):
+    lp = log_prior_montecarlo_population(params)
+    if not np.isfinite(lp):
+        return -np.inf
+    return lp + loglike_montecarlo_population(params, mice_days, mice_volumes)
