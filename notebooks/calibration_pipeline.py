@@ -118,6 +118,7 @@ mice_days = []
 mice_volumes = []
 true_V0_list = []
 
+
 for mid in range(1, 9):
     sub = data[data.mouse_id == mid].sort_values("day")
     mice_days.append(sub.day.values)
