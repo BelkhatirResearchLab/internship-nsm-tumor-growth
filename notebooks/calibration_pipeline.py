@@ -368,6 +368,10 @@ p0_mcpop = np.column_stack([
     np.random.uniform(0.001, 0.2, nwalkers_mcpop),   # sigma
 ] + [np.random.uniform(5.0, 200.0, nwalkers_mcpop) for _ in range(8)])
 
+
+
+
+# %%
 sampler_mcpop = emcee.EnsembleSampler(nwalkers_mcpop, ndim_mcpop,
                                         log_posterior_montecarlo_population,
                                         args=(mice_days, mice_volumes))
@@ -399,5 +403,77 @@ for i in range(4, 12):
     print(f"{param_names_mcpop[i]}: {est[1]:.2f}  (68% CI: [{est[0]:.2f}, {est[2]:.2f}])  | vraie valeur: {true_v0:.2f}")
 
 print("\nVraies valeurs partagees: a=1.300, b=0.090, alpha=0.667, sigma=0.030")
+
+# %%
+
+
+sampler_mcpop = emcee.EnsembleSampler(nwalkers_mcpop, ndim_mcpop,
+                                        log_posterior_montecarlo_population,
+                                        args=(mice_days, mice_volumes))
+
+import time
+t0 = time.time()
+sampler_mcpop.run_mcmc(p0_mcpop, 5, progress=True)
+elapsed = time.time() - t0
+print(f"\n{elapsed:.1f}s pour 5 iterations -> {elapsed/5:.2f}s/iteration")
+print(f"Estimation pour 500 iterations: {elapsed/5*500/60:.1f} minutes")
+
+
+# %%
+
+
+sampler_mcpop.run_mcmc(None, 500, progress=True)
+
+
+# %%
+
+samples_mcpop = sampler_mcpop.get_chain(discard=100, thin=5, flat=True)
+
+# --- Plot 1: shared parameters (a, b, alpha, sigma) ---
+param_names_shared = ["a", "b", "alpha", "sigma"]
+true_values_shared = [1.300, 0.090, 0.667, 0.030]
+
+fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+for i, (name, true_val) in enumerate(zip(param_names_shared, true_values_shared)):
+    est = np.percentile(samples_mcpop[:, i], [2.5, 50, 97.5])
+    median = est[1]
+    err_low = median - est[0]
+    err_high = est[2] - median
+
+    axes[i].errorbar([0], [median], yerr=[[err_low], [err_high]],
+                      fmt='o', color='orange', markersize=10, capsize=8, label='Estimate (MCMC)')
+    axes[i].scatter([0], [true_val], color='green', marker='*', s=250, zorder=5, label='True value')
+    axes[i].set_title(name)
+    axes[i].set_xticks([])
+    axes[i].legend(fontsize=8)
+
+plt.suptitle("Milestone 5: shared parameters - estimate vs true (95% CI)")
+plt.tight_layout()
+plt.savefig("../results/milestone5_shared_params.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+# --- Plot 2: V0 per mouse ---
+fig, ax = plt.subplots(figsize=(10, 5))
+mouse_ids = list(range(1, 9))
+medians = []
+err_lows = []
+err_highs = []
+for i in range(4, 12):
+    est = np.percentile(samples_mcpop[:, i], [2.5, 50, 97.5])
+    medians.append(est[1])
+    err_lows.append(est[1] - est[0])
+    err_highs.append(est[2] - est[1])
+
+ax.errorbar(mouse_ids, medians, yerr=[err_lows, err_highs],
+            fmt='o', color='orange', markersize=8, capsize=6, label='Estimate (MCMC)')
+ax.scatter(mouse_ids, true_V0_list, color='green', marker='*', s=200, zorder=5, label='True value')
+ax.set_xlabel("Mouse")
+ax.set_ylabel("V0 (mm3)")
+ax.set_title("Milestone 5: V0 per mouse - estimate vs true (95% CI)")
+ax.legend()
+plt.tight_layout()
+plt.savefig("../results/milestone5_v0_per_mouse.png", dpi=150, bbox_inches="tight")
+plt.show()
+
 
 # %%
