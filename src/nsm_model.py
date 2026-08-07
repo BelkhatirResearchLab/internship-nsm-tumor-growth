@@ -23,18 +23,17 @@
 #             (beta = 1 => multiplicative noise, proportional to V)
 #   - W(t)  : standard Wiener process (Brownian motion)
 #
-# POPULATION VARIABILITY STRUCTURE (validated with Zehor):
+# POPULATION VARIABILITY STRUCTURE :
 # Per Eq. 21 of the paper, the initial condition V0 varies between
-# mice (random effect eta_i). IN ADDITION, following discussion with
-# Zehor, we also let a and b vary slightly between mice (+/-10%
+# mice (random effect eta_i). We also let a and b vary slightly between mice (+/-10%
 # coefficient of variation) to represent additional biological
 # heterogeneity between individual tumors. This is a deliberate
 # modeling choice on top of the paper's strict formulation (which
-# only varies V0), validated with Zehor for this dataset.
+# only varies V0).
 #
-# GOAL OF THIS SCRIPT:
+
 # Generate synthetic tumor volume measurements for a population of
-# mice (default: 8), with one measurement every 7 days over a
+# mice, with one measurement every 7 days over a
 # 2-month period, mimicking a typical in vivo mouse experiment
 # (similar in spirit to the lung/breast mice datasets used in the
 # paper, Fig. 1). Each mouse follows its own trajectory of the SDE
@@ -82,7 +81,7 @@ b_cv = 0.10   # coefficient of variation of b across mice (10%)
 # ---------------------------------------------------------------
 # 2) EXPERIMENT SETUP
 # ---------------------------------------------------------------
-n_mice        = 8    # number of mice in the synthetic cohort
+n_mice        = 15    # number of mice in the synthetic cohort
 duration_days = 60   # total duration of the experiment (~2 months)
 measure_every = 7    # a new measurement is taken every 7 days
 dt            = 0.01 # integration time step for the Euler-Maruyama
@@ -213,11 +212,6 @@ print(f"\nTotal: {n_mice} mice x {n_meas} measurements = {len(df)} rows")
 # ---------------------------------------------------------------
 # 7) VISUALIZATION
 # ---------------------------------------------------------------
-# NOTE: we intentionally plot ONLY the measured points (connected by
-# straight lines), not the fine-grained continuous trajectory. This
-# matches how tumor growth data is shown in the literature (e.g. Fig. 1
-# of the NSM paper): real experiments never observe the continuous
-# path, only the discrete weekly measurements.
 
 plt.figure(figsize=(9, 6))
 colors = plt.cm.tab10(np.linspace(0, 1, n_mice))
