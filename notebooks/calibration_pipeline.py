@@ -231,6 +231,7 @@ plt.show()
 # %%
 ndim_mcpop = 4 + n_mice  # a, b, alpha, sigma, V0_1...V0_n
 nwalkers_mcpop = 24
+nwalkers_mcpop = 2 * (4 + n_mice) + 4   # ensures at least 2x the number of dimensions
 
 np.random.seed(123)  # reproducibility of this particular starting point
 p0_mcpop = np.column_stack([
