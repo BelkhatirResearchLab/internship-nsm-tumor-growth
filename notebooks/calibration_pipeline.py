@@ -1,16 +1,24 @@
 # %% [markdown]
-# # NSM calibration
-# Deterministic baseline, Monte Carlo likelihood, EKF likelihood, and
-# a population prior built by calibrating each mouse individually and
-# pooling the posteriors with a kernel density estimate.
-#
-# Every MCMC run below uses an HDF5 backend, so the chain is written
-# to disk as it goes -- a crash or closed laptop doesn't lose progress.
-# Each section has a "reload from disk" cell to read back a finished
-# (or interrupted) run without recomputing it.
+#  # NSM calibration
+# 
+#  Deterministic baseline, Monte Carlo likelihood, EKF likelihood, and
+# 
+#  a population prior built by calibrating each mouse individually and
+# 
+#  pooling the posteriors with a kernel density estimate.
+# 
+# 
+# 
+#  Every MCMC run below uses an HDF5 backend, so the chain is written
+# 
+#  to disk as it goes -- a crash or closed laptop doesn't lose progress.
+# 
+#  Each section has a "reload from disk" cell to read back a finished
+# 
+#  (or interrupted) run without recomputing it.
 
 # %% [markdown]
-# ## Setup
+#  ## Setup
 
 # %%
 %load_ext autoreload
@@ -34,11 +42,13 @@ from calibration import (
 )
 from ekf_likelihood import log_posterior_ekf
 
+
 # %%
 data = pd.read_csv("../data/synthetic_NSM_tumor_data.csv")
 n_mice_total = data.mouse_id.nunique()
 print(f"Loaded data for {n_mice_total} mice.")
 print(data.head())
+
 
 # %%
 mouse1 = data[data.mouse_id == 1].sort_values("day")
@@ -47,6 +57,7 @@ observed_volumes = mouse1.V_obs.values
 
 true_a, true_b, true_V0 = mouse1.iloc[0][["a", "b", "V0"]]
 print(f"Mouse 1 true values: a={true_a:.3f}, b={true_b:.3f}, alpha=0.667, V0={true_V0:.1f}")
+
 
 # %%
 mice_days = []
@@ -63,10 +74,13 @@ n_mice = len(mice_days)
 print(f"Population data ready: {n_mice} mice.")
 print("True V0 per mouse:", [f"{v:.1f}" for v in true_V0_list])
 
+
 # %% [markdown]
-# ## Deterministic likelihood (baseline)
-# Fit mouse 1 alone assuming sigma=0 -- ignores the process noise that
-# actually generated the data. Kept to show the bias this causes.
+#  ## Deterministic likelihood (baseline)
+# 
+#  Fit mouse 1 alone assuming sigma=0 -- ignores the process noise that
+# 
+#  actually generated the data. Kept to show the bias this causes.
 
 # %%
 ndim = 4  # a, b, alpha, V0
@@ -83,12 +97,14 @@ sampler = emcee.EnsembleSampler(nwalkers, ndim, log_posterior,
                                   backend=backend1)
 sampler.run_mcmc(p0, 5000, progress=True)
 
+
 # %% [markdown]
-# ### reload from disk
+#  ### reload from disk
 
 # %%
 backend1 = emcee.backends.HDFBackend("../results/chain_deterministic.h5")
 sampler = backend1
+
 
 # %%
 samples = sampler.get_chain(discard=1000, thin=15, flat=True)
@@ -99,6 +115,7 @@ for i, name in enumerate(param_names):
     print(f"{name}: {est[1]:.3f}  (95% CI: [{est[0]:.3f}, {est[2]:.3f}])")
 
 print(f"\nTrue values: a={true_a:.3f}, b={true_b:.3f}, alpha=0.667, V0={true_V0:.1f}")
+
 
 # %%
 found_params = list(np.percentile(samples, 50, axis=0))
@@ -123,18 +140,26 @@ plt.title("Deterministic likelihood: bias when process noise is ignored")
 plt.savefig("../results/deterministic_bias.png", dpi=150, bbox_inches="tight")
 plt.show()
 
-# %% [markdown]
-# The true parameters explain the data worse than the MCMC estimate --
-# the fit compensates for the ignored process noise by distorting the
-# parameter values. Motivates the Monte Carlo likelihood below.
 
 # %% [markdown]
-# ## Monte Carlo likelihood, single mouse
-# Same mouse, but the likelihood now simulates several noisy
-# trajectories per parameter set instead of one smooth curve. Starting
-# point is deliberately far from the true values, to check the fit
-# actually converges from the data rather than just sitting near a
-# convenient start.
+#  The true parameters explain the data worse than the MCMC estimate --
+# 
+#  the fit compensates for the ignored process noise by distorting the
+# 
+#  parameter values. Motivates the Monte Carlo likelihood below.
+
+# %% [markdown]
+#  ## Monte Carlo likelihood, single mouse
+# 
+#  Same mouse, but the likelihood now simulates several noisy
+# 
+#  trajectories per parameter set instead of one smooth curve. Starting
+# 
+#  point is deliberately far from the true values, to check the fit
+# 
+#  actually converges from the data rather than just sitting near a
+# 
+#  convenient start.
 
 # %%
 ndim_mc = 5  # a, b, alpha, sigma, V0
@@ -151,12 +176,14 @@ sampler_mc = emcee.EnsembleSampler(nwalkers_mc, ndim_mc, log_posterior_montecarl
                                      backend=backend2)
 sampler_mc.run_mcmc(p0_mc, 1000, progress=True)
 
+
 # %% [markdown]
-# ### reload from disk
+#  ### reload from disk
 
 # %%
 backend2 = emcee.backends.HDFBackend("../results/chain_mc_single_mouse.h5")
 sampler_mc = backend2
+
 
 # %%
 samples_mc = sampler_mc.get_chain(discard=100, thin=10, flat=True)
@@ -168,6 +195,7 @@ for i, name in enumerate(param_names_mc):
 
 print(f"\nTrue values: a=1.300, b=0.090, alpha=0.667, sigma=0.030, V0=55.0")
 print(f"Starting point (bad, on purpose): a=0.5, b=0.3, alpha=0.4, sigma=0.08, V0=20.0")
+
 
 # %%
 fig, axes = plt.subplots(5, 1, figsize=(10, 10), sharex=True)
@@ -181,17 +209,24 @@ plt.tight_layout()
 plt.savefig("../results/mc_trace_plot.png", dpi=150, bbox_inches="tight")
 plt.show()
 
-# %% [markdown]
-# sigma and V0 converge close to their true values. a, b, alpha settle
-# on a stable but biased plateau -- likely an identifiability issue
-# (b and alpha can partly offset each other in the growth equation)
-# rather than a convergence problem. Motivates pooling multiple mice.
 
 # %% [markdown]
-# ## EKF likelihood, single mouse
-# Same mouse and starting point as above, but using the Kalman filter
-# likelihood instead of Monte Carlo -- should be much faster per
-# evaluation since it doesn't simulate repeated trajectories.
+#  sigma and V0 converge close to their true values. a, b, alpha settle
+# 
+#  on a stable but biased plateau -- likely an identifiability issue
+# 
+#  (b and alpha can partly offset each other in the growth equation)
+# 
+#  rather than a convergence problem. Motivates pooling multiple mice.
+
+# %% [markdown]
+#  ## EKF likelihood, single mouse
+# 
+#  Same mouse and starting point as above, but using the Kalman filter
+# 
+#  likelihood instead of Monte Carlo -- should be much faster per
+# 
+#  evaluation since it doesn't simulate repeated trajectories.
 
 # %%
 ndim_ekf = 5
@@ -206,14 +241,16 @@ backend_ekf.reset(nwalkers_ekf, ndim_ekf)
 sampler_ekf = emcee.EnsembleSampler(nwalkers_ekf, ndim_ekf, log_posterior_ekf,
                                       args=(observed_days, observed_volumes),
                                       backend=backend_ekf)
-sampler_ekf.run_mcmc(p0_ekf, 530, progress=True)
+sampler_ekf.run_mcmc(p0_ekf, 1000, progress=True)
+
 
 # %% [markdown]
-# ### reload from disk
+#  ### reload from disk
 
 # %%
 backend_ekf = emcee.backends.HDFBackend("../results/chain_ekf_single_mouse.h5")
 sampler_ekf = backend_ekf
+
 
 # %%
 samples_ekf = sampler_ekf.get_chain(discard=100, thin=5, flat=True)
@@ -224,6 +261,7 @@ for i, name in enumerate(param_names_ekf):
     print(f"{name}: {est[1]:.3f}  (95% CI: [{est[0]:.3f}, {est[2]:.3f}])")
 
 print(f"\nTrue values: a=1.300, b=0.090, alpha=0.667, sigma=0.030, V0=55.0")
+
 
 # %%
 fig, axes = plt.subplots(1, 5, figsize=(18, 4))
@@ -245,14 +283,17 @@ plt.tight_layout()
 plt.savefig("../results/mc_vs_ekf_comparison.png", dpi=150, bbox_inches="tight")
 plt.show()
 
+
 # %% [markdown]
-# ## Population prior: individual calibration + KDE pooling
-# Calibrate each mouse on its own (reusing the EKF likelihood
-# above), then pool the resulting samples with a kernel density
-# estimate to get a population-level prior. Testing on a small subset
-# first (3 mice) before scaling up to the full cohort.
-
-
+#  ## Population prior: individual calibration + KDE pooling
+# 
+#  Calibrate each mouse on its own (reusing the EKF likelihood
+# 
+#  above), then pool the resulting samples with a kernel density
+# 
+#  estimate to get a population-level prior. Testing on a small subset
+# 
+#  first (3 mice) before scaling up to the full cohort.
 
 # %%
 ndim_ekf = 5
@@ -283,8 +324,15 @@ for idx in mouse_subset:
 
     print(f"mouse {idx+1} done in {elapsed:.1f}s")
 
+# %%
+individual_posteriors_ekf = []
 
+for idx in range(n_mice):
+    backend_i = emcee.backends.HDFBackend(f"../results/chain_individual_ekf_mouse{idx+1}.h5")
+    samples_i = backend_i.get_chain(discard=80, thin=5, flat=True)
+    individual_posteriors_ekf.append(samples_i[:, :4])  # a, b, alpha, sigma
 
+print(f"Loaded posteriors for {len(individual_posteriors_ekf)} mice.")
 
 # %%
 pooled_prior_ekf = build_population_prior_kde(individual_posteriors_ekf)
@@ -295,10 +343,6 @@ for i, name in enumerate(pooled_names):
     print(f"{name} (pooled, EKF): {est[1]:.3f}  (95% CI: [{est[0]:.3f}, {est[2]:.3f}])")
 
 print(f"\nTrue values: a=1.300, b=0.090, alpha=0.667, sigma=0.030")
-
-
-
-
 
 # %%
 fig, axes = plt.subplots(1, 4, figsize=(14, 4))
@@ -318,4 +362,8 @@ plt.tight_layout()
 plt.savefig("../results/pooled_prior_ekf_15mice.png", dpi=150, bbox_inches="tight")
 plt.show()
 
+
 # %%
+
+
+
