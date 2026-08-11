@@ -247,44 +247,75 @@ plt.show()
 
 # %% [markdown]
 # ## Population prior: individual calibration + KDE pooling
-# Calibrate each mouse on its own (reusing the Monte Carlo likelihood
+# Calibrate each mouse on its own (reusing the EKF likelihood
 # above), then pool the resulting samples with a kernel density
 # estimate to get a population-level prior. Testing on a small subset
 # first (3 mice) before scaling up to the full cohort.
 
+
+
 # %%
-mouse_subset = [0, 1, 2]  # indices into mice_days/mice_volumes
-individual_posteriors = []
+ndim_ekf = 5
+nwalkers_ekf = 32
+
+mouse_subset = list(range(n_mice))  # les 15 souris
+individual_posteriors_ekf = []
 
 for idx in mouse_subset:
     days = mice_days[idx]
     vols = mice_volumes[idx]
 
     p0_center_i = np.array([1.0, 0.08, 0.6, 0.03, 55.0])
-    p0_i = p0_center_i + 1e-2 * p0_center_i * np.random.randn(nwalkers_mc, ndim_mc)
+    p0_i = p0_center_i + 1e-2 * p0_center_i * np.random.randn(nwalkers_ekf, ndim_ekf)
 
-    backend_i = emcee.backends.HDFBackend(f"../results/chain_individual_mouse{idx+1}.h5")
-    backend_i.reset(nwalkers_mc, ndim_mc)
+    backend_i = emcee.backends.HDFBackend(f"../results/chain_individual_ekf_mouse{idx+1}.h5")
+    backend_i.reset(nwalkers_ekf, ndim_ekf)
 
-    sampler_i = emcee.EnsembleSampler(nwalkers_mc, ndim_mc, log_posterior_montecarlo,
+    sampler_i = emcee.EnsembleSampler(nwalkers_ekf, ndim_ekf, log_posterior_ekf,
                                         args=(days, vols), backend=backend_i)
-    sampler_i.run_mcmc(p0_i, 300, progress=True)
 
-    samples_i = sampler_i.get_chain(discard=50, thin=5, flat=True)
-    individual_posteriors.append(samples_i[:, :4])  # a, b, alpha, sigma -- V0 stays out
+    t0 = time.time()
+    sampler_i.run_mcmc(p0_i, 400, progress=True)
+    elapsed = time.time() - t0
 
-    print(f"mouse {idx+1} done")
+    samples_i = sampler_i.get_chain(discard=80, thin=5, flat=True)
+    individual_posteriors_ekf.append(samples_i[:, :4])  # a, b, alpha, sigma
+
+    print(f"mouse {idx+1} done in {elapsed:.1f}s")
+
+
+
 
 # %%
-pooled_prior = build_population_prior_kde(individual_posteriors)
+pooled_prior_ekf = build_population_prior_kde(individual_posteriors_ekf)
 
 pooled_names = ["a", "b", "alpha", "sigma"]
 for i, name in enumerate(pooled_names):
-    est = np.percentile(pooled_prior[:, i], [2.5, 50, 97.5])
-    print(f"{name} (pooled): {est[1]:.3f}  (95% CI: [{est[0]:.3f}, {est[2]:.3f}])")
+    est = np.percentile(pooled_prior_ekf[:, i], [2.5, 50, 97.5])
+    print(f"{name} (pooled, EKF): {est[1]:.3f}  (95% CI: [{est[0]:.3f}, {est[2]:.3f}])")
 
-# %% [markdown]
-# Next: extend the loop above to all n_mice mice (will take a while --
-# run overnight or in the background), then use the pooled prior for
-# the sequential/online update (get_weights_nsm), which still needs a
-# way to draw matching V0 samples since V0 isn't part of the pool.
+print(f"\nTrue values: a=1.300, b=0.090, alpha=0.667, sigma=0.030")
+
+
+
+
+
+# %%
+fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+true_values_pooled = [1.300, 0.090, 0.667, 0.030]
+
+for i, (name, true_val) in enumerate(zip(pooled_names, true_values_pooled)):
+    est = np.percentile(pooled_prior_ekf[:, i], [2.5, 50, 97.5])
+    axes[i].errorbar([0], [est[1]], yerr=[[est[1]-est[0]], [est[2]-est[1]]],
+                      fmt='o', color='purple', markersize=10, capsize=8, label='Pooled (EKF)')
+    axes[i].scatter([0], [true_val], color='green', marker='*', s=250, zorder=5, label='True value')
+    axes[i].set_title(name)
+    axes[i].set_xticks([])
+    axes[i].legend(fontsize=8)
+
+plt.suptitle("Population prior via individual calibration + KDE pooling (15 mice, EKF)")
+plt.tight_layout()
+plt.savefig("../results/pooled_prior_ekf_15mice.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+# %%
