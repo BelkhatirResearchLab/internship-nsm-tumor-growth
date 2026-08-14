@@ -113,23 +113,34 @@ def log_posterior_montecarlo(params, observed_days, observed_volumes):
 # builds a population-level prior via a kernel density estimate,
 # Silverman bandwidth, expanded by a factor beta so it isn't too tight
 
-def build_population_prior_kde(list_of_posterior_samples, beta=2.0, n_output_samples=2000):
+def build_population_prior_kde(list_of_posterior_samples, bounds=None, beta=2.0, n_output_samples=2000):
     """
     list_of_posterior_samples: one array per mouse, each of shape
-    (n_samples_i, n_params) — e.g. columns (a, b, alpha, sigma).
-    V0 is left out since it stays mouse-specific.
+    (n_samples_i, n_params) -- columns (a, b, alpha, sigma) or
+    (a, b, alpha, sigma, V0).
+    bounds: list of (low, high) tuples, one per parameter, matching
+    the columns above. Samples outside these bounds are rejected and
+    redrawn, following Browning et al.'s approach.
     """
     X = np.vstack(list_of_posterior_samples)
     n, d = X.shape
 
+    if bounds is None:
+        bounds = [(0.1, 5.0), (0.01, 1.0), (0.3, 0.99), (0.001, 0.2), (5.0, 200.0)][:d]
+
     std_per_dim = np.std(X, axis=0)
     bandwidth = (4 / (d + 2))**(1 / (d + 4)) * n**(-1 / (d + 4)) * std_per_dim
 
-    idx = np.random.choice(n, size=n_output_samples, replace=True)
-    base_points = X[idx]
-    kernel_noise = beta * bandwidth * np.random.randn(n_output_samples, d)
+    output = np.zeros((n_output_samples, d))
+    for i in range(n_output_samples):
+        while True:
+            idx = np.random.choice(n)
+            candidate = X[idx] + beta * bandwidth * np.random.randn(d)
+            if all(bounds[k][0] < candidate[k] < bounds[k][1] for k in range(d)):
+                output[i] = candidate
+                break
 
-    return base_points + kernel_noise
+    return output
 
 
 ################################################
