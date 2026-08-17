@@ -323,3 +323,230 @@ def get_weights_nsm_resampled_diversified(param_samples, V0_samples, observed_da
             log_w = np.zeros(n_samples)
 
     return weights_history, all_curves, current_params
+
+
+
+
+
+def get_weights_nsm_resampled_covariance(param_samples, V0_samples, observed_days, observed_volumes,
+                                            meas_sigma=5.0, ess_threshold_ratio=0.5,
+                                            diversify_scale=0.3):
+    """
+    Same as get_weights_nsm_resampled_diversified, but the
+    post-resampling perturbation uses a Gaussian kernel with the
+    FULL covariance matrix of the current particle set (like the KDE
+    pooling step), instead of an isotropic gaussian per-dimension --
+    this respects correlations between parameters (e.g. b/alpha)
+    instead of perturbing each dimension independently.
+    """
+    n_samples = len(param_samples)
+    n_times = len(observed_days)
+    ess_threshold = ess_threshold_ratio * n_samples
+
+    current_params = param_samples.copy()
+    current_V0 = V0_samples.copy()
+
+    all_curves = np.full((n_samples, n_times), np.nan)
+    weights_history = np.zeros((n_samples, n_times))
+    log_w = np.zeros(n_samples)
+
+    for t_idx in range(n_times):
+        day = observed_days[t_idx]
+        y_obs = observed_volumes[t_idx]
+
+        for i in range(n_samples):
+            a, b, alpha = current_params[i]
+            V0 = current_V0[i]
+
+            def ode_rhs(t, V):
+                return a * V**alpha - b * V
+
+            sol = solve_ivp(ode_rhs, [0, day], [V0], method="RK45",
+                             rtol=1e-4, atol=1e-4)
+            if not sol.success:
+                log_w[i] = -np.inf
+                continue
+
+            predicted = sol.y[0][-1]
+            all_curves[i, t_idx] = predicted
+
+            residual = y_obs - predicted
+            log_w[i] += -0.5 * (residual / meas_sigma) ** 2
+
+        finite_mask = np.isfinite(log_w)
+        w = np.zeros(n_samples)
+        w[finite_mask] = np.exp(log_w[finite_mask] - np.max(log_w[finite_mask]))
+        w = w / w.sum()
+        weights_history[:, t_idx] = w
+
+        ess = 1.0 / np.sum(w ** 2)
+        if ess < ess_threshold and t_idx < n_times - 1:
+            idx_resample = np.random.choice(n_samples, size=n_samples, p=w)
+            resampled_params = current_params[idx_resample]
+            resampled_V0 = current_V0[idx_resample]
+
+            # perturbation with the FULL covariance of the (pre-resample) params
+            n_dim = 4  # a, b, alpha treated jointly + V0 separately
+            combined = np.column_stack([current_params, current_V0])
+            cov = np.cov(combined, rowvar=False)
+
+            # Silverman-style bandwidth scaling on the covariance
+            n_eff = n_samples
+            bandwidth_scale = diversify_scale * (4 / (n_dim + 2))**(1/(n_dim+4)) * n_eff**(-1/(n_dim+4))
+            perturbation = np.random.multivariate_normal(
+                mean=np.zeros(n_dim), cov=cov * bandwidth_scale**2, size=n_samples
+            )
+
+            resampled_combined = np.column_stack([resampled_params, resampled_V0]) + perturbation
+            current_params = resampled_combined[:, :3]
+            current_V0 = np.clip(resampled_combined[:, 3], 1.0, None)
+            log_w = np.zeros(n_samples)
+
+    return weights_history, all_curves, current_params, current_V0
+
+
+
+
+def get_weights_nsm_resampled_covariance_always(param_samples, V0_samples, observed_days, observed_volumes,
+                                                    meas_sigma=5.0, diversify_scale=0.3):
+    """
+    Same as get_weights_nsm_resampled_covariance, but resamples and
+    diversifies at EVERY measurement step, not just when ESS drops
+    below a threshold -- prevents weight accumulation from ever
+    building up enough to collapse.
+    """
+    n_samples = len(param_samples)
+    n_times = len(observed_days)
+
+    current_params = param_samples.copy()
+    current_V0 = V0_samples.copy()
+
+    all_curves = np.full((n_samples, n_times), np.nan)
+    weights_history = np.zeros((n_samples, n_times))
+
+    for t_idx in range(n_times):
+        day = observed_days[t_idx]
+        y_obs = observed_volumes[t_idx]
+
+        log_w = np.zeros(n_samples)  # fresh weights each step, not cumulative
+
+        for i in range(n_samples):
+            a, b, alpha = current_params[i]
+            V0 = current_V0[i]
+
+            def ode_rhs(t, V):
+                return a * V**alpha - b * V
+
+            sol = solve_ivp(ode_rhs, [0, day], [V0], method="RK45",
+                             rtol=1e-4, atol=1e-4)
+            if not sol.success:
+                log_w[i] = -np.inf
+                continue
+
+            predicted = sol.y[0][-1]
+            all_curves[i, t_idx] = predicted
+
+            residual = y_obs - predicted
+            log_w[i] = -0.5 * (residual / meas_sigma) ** 2
+
+        finite_mask = np.isfinite(log_w)
+        w = np.zeros(n_samples)
+        w[finite_mask] = np.exp(log_w[finite_mask] - np.max(log_w[finite_mask]))
+        w = w / w.sum()
+        weights_history[:, t_idx] = w
+
+        if t_idx < n_times - 1:
+            idx_resample = np.random.choice(n_samples, size=n_samples, p=w)
+            resampled_params = current_params[idx_resample]
+            resampled_V0 = current_V0[idx_resample]
+
+            n_dim = 4
+            combined = np.column_stack([current_params, current_V0])
+            cov = np.cov(combined, rowvar=False)
+
+            n_eff = n_samples
+            bandwidth_scale = diversify_scale * (4 / (n_dim + 2))**(1/(n_dim+4)) * n_eff**(-1/(n_dim+4))
+            perturbation = np.random.multivariate_normal(
+                mean=np.zeros(n_dim), cov=cov * bandwidth_scale**2, size=n_samples
+            )
+
+            resampled_combined = np.column_stack([resampled_params, resampled_V0]) + perturbation
+            current_params = resampled_combined[:, :3]
+            current_V0 = np.clip(resampled_combined[:, 3], 1.0, None)
+
+    return weights_history, all_curves, current_params, current_V0
+
+
+
+def get_weights_nsm_particle_filter(param_samples, V0_samples, observed_days, observed_volumes,
+                                      meas_sigma=5.0, diversify_scale=0.3, ess_threshold_ratio=0.5):
+    """
+    Proper particle filter structure: each particle's trajectory is
+    simulated ONCE per segment (from the previous measurement day to
+    the current one), continuing from where it left off -- not
+    re-simulated from t=0 each time. Resampling/diversification only
+    changes which particle continues forward, preserving trajectory
+    continuity.
+    """
+    n_samples = len(param_samples)
+    n_times = len(observed_days)
+    ess_threshold = ess_threshold_ratio * n_samples
+
+    current_params = param_samples.copy()   # (a, b, alpha) per particle, fixed for its lifetime unless resampled
+    current_state = V0_samples.copy()       # current V(t) for each particle, evolves forward
+
+    all_curves = np.full((n_samples, n_times), np.nan)
+    weights_history = np.zeros((n_samples, n_times))
+    log_w = np.zeros(n_samples)
+
+    t_prev = 0.0
+
+    for t_idx in range(n_times):
+        day = observed_days[t_idx]
+        y_obs = observed_volumes[t_idx]
+
+        for i in range(n_samples):
+            a, b, alpha = current_params[i]
+            V_start = current_state[i]
+
+            def ode_rhs(t, V):
+                return a * V**alpha - b * V
+
+            sol = solve_ivp(ode_rhs, [t_prev, day], [V_start], method="RK45",
+                             rtol=1e-4, atol=1e-4)
+            if not sol.success:
+                log_w[i] = -np.inf
+                current_state[i] = np.nan
+                continue
+
+            V_end = sol.y[0][-1]
+            current_state[i] = V_end  # continue from here next segment
+            all_curves[i, t_idx] = V_end
+
+            residual = y_obs - V_end
+            log_w[i] += -0.5 * (residual / meas_sigma) ** 2
+
+        finite_mask = np.isfinite(log_w)
+        w = np.zeros(n_samples)
+        w[finite_mask] = np.exp(log_w[finite_mask] - np.max(log_w[finite_mask]))
+        w = w / w.sum()
+        weights_history[:, t_idx] = w
+
+        ess = 1.0 / np.sum(w ** 2)
+        if ess < ess_threshold and t_idx < n_times - 1:
+            idx_resample = np.random.choice(n_samples, size=n_samples, p=w)
+            current_params = current_params[idx_resample]
+            current_state = current_state[idx_resample]  # continuity preserved: keeps the actual V(t) reached
+
+            # diversify only the (a,b,alpha) going forward, not the state itself
+            cov = np.cov(current_params, rowvar=False)
+            bandwidth_scale = diversify_scale * (4 / 5)**(1/7) * n_samples**(-1/7)
+            perturbation = np.random.multivariate_normal(
+                mean=np.zeros(3), cov=cov * bandwidth_scale**2, size=n_samples
+            )
+            current_params = current_params + perturbation
+            log_w = np.zeros(n_samples)
+
+        t_prev = day
+
+    return weights_history, all_curves

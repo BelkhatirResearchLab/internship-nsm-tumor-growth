@@ -343,4 +343,160 @@ for ti in [1, 4, 8]:
 
 print("\nUnique 'a' values in FINAL pool:", len(np.unique(np.round(final_params[:, 0], 4))), "/", n_weight_samples)
 
+# %% [markdown]
+# #### resampled covariance
+
+# %%
+from calibration import get_weights_nsm_resampled_covariance
+np.random.seed(42)
+weights_cov, curves_cov, final_params_cov, final_V0_cov = get_weights_nsm_resampled_covariance(
+    param_samples, V0_samples, test_days, test_volumes
+)
+
+print("=== CLOSE start — ESS with covariance-aware resampling ===")
+for ti in [1, 4, 8]:
+    ess = effective_sample_size(weights_cov[:, ti])
+    print(f"After {ti+1} measurements: ESS = {ess:.1f} / {n_weight_samples} samples")
+
+print("\nUnique 'a' values in FINAL pool:", len(np.unique(np.round(final_params_cov[:, 0], 4))), "/", n_weight_samples)
+
+# %% [markdown]
+# #### resampled covariance always
+
+# %%
+from calibration import get_weights_nsm_resampled_covariance_always
+# %%
+np.random.seed(42)
+weights_always, curves_always, final_params_always, final_V0_always = get_weights_nsm_resampled_covariance_always(
+    param_samples, V0_samples, test_days, test_volumes
+)
+
+print("=== ESS with resampling at EVERY step ===")
+for ti in [1, 4, 8]:
+    ess = effective_sample_size(weights_always[:, ti])
+    print(f"After {ti+1} measurements: ESS = {ess:.1f} / {n_weight_samples} samples")
+
+print("\nUnique 'a' values in FINAL pool:", len(np.unique(np.round(final_params_always[:, 0], 4))), "/", n_weight_samples)
+
+# %% [markdown]
+# ####### Going from strict to not strict
+
+# %%
+# %%
+np.random.seed(42)
+weights_v2, curves_v2, final_params_v2, final_V0_v2 = get_weights_nsm_resampled_covariance_always(
+    param_samples, V0_samples, test_days, test_volumes,
+    meas_sigma=15.0,       # plus permissif, au lieu de 5.0
+    diversify_scale=1.0    # plus de dispersion, au lieu de 0.3
+)
+
+print("=== ESS with wider meas_sigma + stronger diversification ===")
+for ti in [1, 4, 8]:
+    ess = effective_sample_size(weights_v2[:, ti])
+    print(f"After {ti+1} measurements: ESS = {ess:.1f} / {n_weight_samples} samples")
+
+print("\nUnique 'a' values in FINAL pool:", len(np.unique(np.round(final_params_v2[:, 0], 4))), "/", n_weight_samples)
+
+# %% [markdown]
+# ##### does it change prediction precision ?
+
+# %%
+# %%
+fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
+time_indices_to_show = [1, 4, 8]
+
+for ax, ti in zip(axes, time_indices_to_show):
+    w = weights_v2[:, ti]
+    weighted_curve = np.average(curves_v2, axis=0, weights=w)
+
+    ax.plot(test_days, curves_v2.T, color="gray", alpha=0.05)
+    ax.plot(test_days, weighted_curve, color="red", linewidth=2, label="Weighted prediction")
+    ax.scatter(test_days[:ti+1], test_volumes[:ti+1], color="black", zorder=5, label="Seen data")
+    ax.scatter(test_days[ti+1:], test_volumes[ti+1:], color="lightgray", zorder=5, label="Future data")
+    ax.set_ylim(0, 2500)
+    ax.set_title(f"After {ti+1} measurements")
+    ax.legend(fontsize=7)
+
+plt.suptitle("Online update with covariance-aware resampling + wider likelihood (fixes weight degeneracy)")
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# ##### FILTER TENTATIVE
+
+# %%
+# %%
+from calibration import get_weights_nsm_particle_filter
+np.random.seed(42)
+weights_pf, curves_pf = get_weights_nsm_particle_filter(
+    param_samples, V0_samples, test_days, test_volumes,
+    meas_sigma=15.0, diversify_scale=1.0
+)
+
+print("=== Proper particle filter — ESS ===")
+for ti in [1, 4, 8]:
+    ess = effective_sample_size(weights_pf[:, ti])
+    print(f"After {ti+1} measurements: ESS = {ess:.1f} / {n_weight_samples} samples")
+
+# %%
+# %%
+fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharey=True, sharex=True)
+time_indices_to_show = [1, 4, 8]
+
+for row, (curves_r, weights_r, row_label) in enumerate([
+    (curves_clean, weights_clean, "Before (original method)"),
+    (curves_pf, weights_pf, "After (particle filter fix)"),
+]):
+    for col, ti in enumerate(time_indices_to_show):
+        ax = axes[row, col]
+        w = weights_r[:, ti]
+        weighted_curve = np.average(curves_r, axis=0, weights=w)
+
+        ax.plot(test_days, curves_r.T, color="gray", alpha=0.05)
+        ax.plot(test_days, weighted_curve, color="red", linewidth=2, marker='o')
+        ax.scatter(test_days[:ti+1], test_volumes[:ti+1], color="black", zorder=5)
+        ax.scatter(test_days[ti+1:], test_volumes[ti+1:], color="lightgray", zorder=5)
+        ax.set_ylim(0, 2500)
+        if row == 0:
+            ax.set_title(f"After {ti+1} measurements")
+        if col == 0:
+            ax.set_ylabel(row_label)
+
+plt.suptitle("Online update, held-out mouse 15 (close start): before vs after particle filter fix")
+plt.tight_layout()
+plt.savefig("../results/particle_filter_before_after.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+# %%
+# %%
+fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
+time_indices_to_show = [1, 4, 8]
+
+for ax, ti in zip(axes, time_indices_to_show):
+    w = weights_pf[:, ti]
+    weighted_curve = np.average(curves_pf, axis=0, weights=w)
+
+    ax.plot(test_days, curves_pf.T, color="gray", alpha=0.1)
+    ax.plot(test_days, weighted_curve, color="red", linewidth=2, marker='o', label="Weighted prediction")
+    ax.scatter(test_days[:ti+1], test_volumes[:ti+1], color="black", zorder=5, label="Seen data")
+    ax.scatter(test_days[ti+1:], test_volumes[ti+1:], color="lightgray", zorder=5, label="Future data")
+    ax.set_ylim(0, 2500)
+    ax.set_title(f"After {ti+1} measurements")
+    ax.legend(fontsize=7)
+
+plt.suptitle("Proper particle filter: covariance-aware")
+
+# %%
+# %%
+print("=== Proper particle filter — full metrics ===")
+for ti in [1, 4, 8]:
+    r2 = bayesian_r2(curves_pf, weights_pf[:, ti], test_days, test_volumes, ti)
+    rmse = prediction_rmse(curves_pf, weights_pf[:, ti], test_days, test_volumes, ti)
+    cov = coverage_95(curves_pf, weights_pf[:, ti], test_volumes, ti)
+    ess = effective_sample_size(weights_pf[:, ti])
+    print(f"After {ti+1} measurements: R2={r2:.3f}, RMSE(future)={rmse:.1f} mm3, coverage={cov:.2f}, ESS={ess:.1f}")
+
+# %% [markdown]
+# ##### juste voir
+
 
